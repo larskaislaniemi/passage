@@ -1,0 +1,25 @@
+# Storage format
+
+Dir per secret:
+
+	DIR	<secretname>.pasg
+	- FILE	secret    	encrypted secret content
+	- FILE	recips    	keys to whom the secret has been encrypted
+	- FILE	recips.sig	signature of FILE recips
+
+Signature by `ssh-keygen -Y sign`. Encryption by `age -R recips`.
+
+
+# Operations
+
+Atomic operations:
+ - Encrypt a secret <- (secretname, recipients, secret-content)
+ - Show a secret <- (secretname)
+ - Show recipients of a secret <- (secretname)
+
+Combinations:
+ - Modify secret-content
+ - Modify recipients
+ - Add recipients from file (TODO)
+ - Copy list of recipients from another secret (TODO)
+

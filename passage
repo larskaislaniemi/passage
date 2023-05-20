@@ -1,0 +1,254 @@
+#!/usr/bin/sh
+
+set -eu
+
+### CONFIG VARIABLES
+
+DIRSUFFIX="pasg"
+SIGNATURE_NAMESPACE="passage"
+TMPROOT="/dev/shm"
+TMPDIR="/dev/shm" # modified on start
+LOGFILE="${TMPDIR}/passage.log" # modified on start
+EDITOR=${EDITOR:-vi} # YES!
+
+MYSECKEY="${HOME}/.ssh/id_ed25519"
+MYPUBKEY="${MYSECKEY}.pub"
+MYALLOWEDSIGNERS="${HOME}/.config/passage/allowed_signers"
+
+
+### HELPER ROUTINES
+
+passage__shred_recursive() {
+	# arguments:
+	# - dir/filename
+	# output: none
+	# returns via exit(), run in a subshell!
+
+	local f="$1"
+	local dummy
+	local frec
+
+	if [ -f "$f" ]; then
+		shred "$f"
+		rm -f "$f"
+		exit 0
+	fi
+
+	if [ -d "$f" ]; then
+		local d=$(realpath "$f")
+		local n=$(find "$f" -type f | wc -l)
+
+		if [ "$n" -gt 10 ]; then
+			echo "WARNING: Skipping shredding of $f -- too many files" >&2
+			exit 1
+		fi
+
+		if [ "$d" = "/" ]; then
+			echo "WARNING: Skipping shredding of $f -- it's the root..." >&2
+			exit 1
+		fi
+
+		find "$d" -type f | while read frec; do
+			shred "$frec"
+			rm -f "$frec"
+		done
+
+		rm -fr "$d"
+
+		exit 0
+	fi
+
+	exit 1
+}
+
+passage__sighandler() {
+	(passage__shred_recursive "$TMPDIR") || echo "Failed to clean $TMPDIR" >&2
+}
+
+
+### ATOMIC OPERATIONS
+
+passage_encrypt_secret() {
+	# arguments:
+	# - secretname
+	# - recipients filename
+
+	local secretname="$1"
+	local recipients_filename="$2"
+
+	rm -fr "${secretname}.${DIRSUFFIX}"
+	mkdir -p "${secretname}.${DIRSUFFIX}"
+	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
+	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
+		"${secretname}.${DIRSUFFIX}/recips"
+	age -R "${recipients_filename}" > "${secretname}.${DIRSUFFIX}/secret" 
+}
+
+passage_show_secret() {
+	# arguments:
+	# - secretname
+
+	local secretname="$1"
+
+	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" 
+}
+
+passage_show_recipients() {
+	# arguments
+	# - secretname
+
+	local isvalidsig="0"
+	local secretname="$1"
+
+	local signedprincipal=$(ssh-keygen -Y find-principals \
+		-s "${secretname}.${DIRSUFFIX}/recips.sig" \
+		-f "${MYALLOWEDSIGNERS}" 2> "$LOGFILE")
+
+	ssh-keygen -Y verify -f "${MYALLOWEDSIGNERS}" -I "${signedprincipal}" \
+		-n "${SIGNATURE_NAMESPACE}" -s "${secretname}.${DIRSUFFIX}/recips.sig" \
+		> "$LOGFILE" 2> "$LOGFILE" < "${secretname}.${DIRSUFFIX}/recips" \
+		&& isvalidsig="1"
+	# TODO: use option -r revocation_file for ssh-keygen -Y verify
+
+	if [ "$isvalidsig" -ne "1" ]; then
+		echo "WARNING: Could not verify signature for recipients list" >&2
+	fi
+
+	cat "${secretname}.${DIRSUFFIX}/recips"
+	if [ "$isvalidsig" -ne "1" ]; then
+		echo '# WARNING! AUTHENTICITY/INTEGRITY UNVERIFIED!'
+		return 1
+	else
+		return 0
+	fi
+}
+
+passage__open_secret() {
+	# arguments
+	# - secretname
+	# output: tmpdir location
+	# returns via exit(), run in subshell!
+
+	local secretname="$1"
+	local tmpsecret
+	tmpsecret="$(mktemp -d -p "$TMPDIR")"
+
+	# Make sure we give the output before
+	# potentially exiting due to an error
+	echo "$tmpsecret"
+	
+	passage_show_recipients "$secretname" > "${tmpsecret}/recips" || {
+		echo "WARNING: Failed signature check, will not continue" >&2
+		(passage__close_secret "$tmpsecret") || true
+		exit 1
+	}
+	passage_show_secret "$secretname" > "${tmpsecret}/secret.plain" || {
+		echo "WARNING: Decrypt failed" >&2
+		(passage__close_secret "$tmpsecret") || true
+		exit 1
+	}
+
+	exit 0
+
+	# TODO: add lockfile
+}
+
+passage__close_secret() {
+	# arguments:
+	# - tmpdir location
+	# output: none
+	# returns via exit(), run in subshell!
+
+	local tmpsecret="$1"
+
+	(passage__shred_recursive "$tmpsecret") || {
+		echo "Failed to clean $tmpsecret" >&2
+		exit 1
+	}
+
+	exit 0
+	# TODO: remove lockfile
+}
+
+
+### COMBINED OPERATIONS
+
+passage_modify_secret() {
+	# arguments
+	# - secretname
+
+	local secretname="$1"
+	local tmpsecret
+	tmpsecret=$(passage__open_secret "$secretname") 
+
+	"$EDITOR" "${tmpsecret}/secret.plain"
+
+	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+		< "${tmpsecret}/secret.plain"
+
+	passage__close_secret "$tmpsecret"
+}
+
+passage_modify_recipients() {
+	# arguments
+	# - secretname
+
+	local secretname="$1"
+	local tmpsecret
+	tmpsecret=$(passage__open_secret "$secretname")
+
+	"$EDITOR" "${tmpsecret}/recips"
+
+	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+		< "${tmpsecret}/secret.plain"
+
+	passage__close_secret "$tmpsecret"
+}
+
+
+### OTHER SUBROUTINES
+
+passage_usage() {
+	echo "Usage: not yet implemented"
+}
+
+
+### MAIN
+
+TMPDIR="$(mktemp -d -p "$TMPROOT")"
+LOGFILE="${TMPDIR}/passage.log"
+
+trap passage__sighandler EXIT
+
+
+if [ "$#" -lt 1 ]; then
+	passage_usage
+	exit 1
+fi
+
+cmd="$1"
+shift
+
+case "$cmd" in
+encrypt-secret)
+	passage_encrypt_secret $@
+	;;
+show-secret)
+	passage_show_secret $@
+	;;
+show-recipients)
+	passage_show_recipients $@
+	;;
+modify-secret)
+	passage_modify_secret $@
+	;;
+modify-recipients)
+	passage_modify_recipients $@
+	;;
+*)
+	echo "Unknown command $cmd"
+	passage_usage $@
+	exit 1
+	;;
+esac
+
