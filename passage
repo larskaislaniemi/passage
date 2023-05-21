@@ -422,19 +422,34 @@ shift
 
 case "$cmd" in
 encrypt-secret)
-	passage_encrypt_secret $@ 
+	passage_encrypt_secret $@ || {
+		SAVELOG="1"
+		exit 1
+	}
 	;;
 show-secret)
-	passage_show_secret $@
+	passage_show_secret $@ || {
+		SAVELOG="1"
+		exit 1
+	}
 	;;
 show-recipients)
-	passage_show_recipients $@
+	passage_show_recipients $@ || {
+		SAVELOG="1"
+		exit 1
+	}
 	;;
 list-secrets)
-	passage_list_secrets $@
+	passage_list_secrets $@ || {
+		SAVELOG="1"
+		exit 1
+	}
 	;;
 modify-secret)
-	passage_modify_secret $@
+	passage_modify_secret $@ || {
+		SAVELOG="1"
+		exit 1
+	}
 	;;
 update-secret)
 	passage_update_secret $@ || {
@@ -443,10 +458,16 @@ update-secret)
 	}
 	;;
 modify-recipients)
-	passage_modify_recipients $@
+	passage_modify_recipients $@ || {
+		SAVELOG="1"
+		exit 1
+	}
 	;;
 update-recipients)
-	passage_update_recipients $@
+	passage_update_recipients $@ || {
+		SAVELOG="1"
+		exit 1
+	}
 	;;
 *)
 	echo "Unknown command $cmd"
