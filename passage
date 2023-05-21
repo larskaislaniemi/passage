@@ -85,6 +85,7 @@ passage_encrypt_secret() {
 	local secretname="$1"
 	local recipients_filename="$2"
 
+	# TODO: check existence / lock file; might also be open for myself
 	rm -fr "${secretname}.${DIRSUFFIX}"
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
@@ -185,6 +186,22 @@ passage__close_secret() {
 
 ### COMBINED OPERATIONS
 
+passage_update_secret() {
+	# arguments
+	# - secretname
+
+	local secretname="$1"
+	local tmpsecret
+	tmpsecret=$(passage__open_secret "$secretname") 
+
+	cat > "${tmpsecret}/secret.plain"
+
+	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+		< "${tmpsecret}/secret.plain"
+
+	passage__close_secret "$tmpsecret"
+}
+
 passage_modify_secret() {
 	# arguments
 	# - secretname
@@ -194,6 +211,22 @@ passage_modify_secret() {
 	tmpsecret=$(passage__open_secret "$secretname") 
 
 	"$EDITOR" "${tmpsecret}/secret.plain"
+
+	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+		< "${tmpsecret}/secret.plain"
+
+	passage__close_secret "$tmpsecret"
+}
+
+passage_update_recipients() {
+	# arguments
+	# - secretname
+
+	local secretname="$1"
+	local tmpsecret
+	tmpsecret=$(passage__open_secret "$secretname") 
+
+	cat > "${tmpsecret}/recips"
 
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
