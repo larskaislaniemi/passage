@@ -89,8 +89,10 @@ passage_encrypt_secret() {
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
-		"${secretname}.${DIRSUFFIX}/recips"
-	age -R "${recipients_filename}" > "${secretname}.${DIRSUFFIX}/secret" 
+		"${secretname}.${DIRSUFFIX}/recips" \
+		> "$LOGFILE" 2> "$LOGFILE"
+	age -R "${recipients_filename}" > "${secretname}.${DIRSUFFIX}/secret" \
+		> "$LOGFILE" 2> "$LOGFILE"
 }
 
 passage_show_secret() {
@@ -99,7 +101,8 @@ passage_show_secret() {
 
 	local secretname="$1"
 
-	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" 
+	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" \
+		> "$LOGFILE" 2> "$LOGFILE"
 }
 
 passage_show_recipients() {
