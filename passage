@@ -1,6 +1,7 @@
 #!/usr/bin/sh
 
 set -eu
+set -o noglob
 
 ### CONFIG VARIABLES
 
@@ -208,6 +209,31 @@ passage_modify_recipients() {
 
 ### OTHER SUBROUTINES
 
+passage_list_secrets() {
+	# arguments
+	# - root dir
+
+	local rootdir
+
+	if [ "$#" -lt 1 ]; then
+		rootdir="."
+	else
+		rootdir="$1"
+	fi
+
+	find "$rootdir" -type d -name "*.${DIRSUFFIX}" | while read d; do
+		if [ -f "${d}/secret" ] && [ -f "${d}/recips" ]; then
+			local path
+			local name
+			path=$(dirname ${d})
+			name=$(basename ${d} .${DIRSUFFIX})
+			echo "${path}/${name}"
+		else
+			continue
+		fi
+	done
+}
+
 passage_usage() {
 	echo "Usage: not yet implemented"
 }
@@ -238,6 +264,9 @@ show-secret)
 	;;
 show-recipients)
 	passage_show_recipients $@
+	;;
+list-secrets)
+	passage_list_secrets $@
 	;;
 modify-secret)
 	passage_modify_secret $@

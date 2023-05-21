@@ -23,3 +23,6 @@ Combinations:
  - Add recipients from file (TODO)
  - Copy list of recipients from another secret (TODO)
 
+Other operations:
+ - List secrets
+
