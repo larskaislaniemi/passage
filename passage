@@ -1,7 +1,6 @@
 #!/usr/bin/sh
 
-set -eu
-set -o noglob
+set -eu -o noglob
 
 
 ### CONFIG VARIABLES
@@ -14,14 +13,15 @@ LOGFILE="${TMPDIR}/passage.log" # modified on start
 EDITOR=${EDITOR:-vi} # YES!
 ROOTDIR="." # modified by command line arguments
 
-MYSECKEY="${HOME}/.ssh/id_ed25519"
-MYPUBKEY="${MYSECKEY}.pub"
-MYALLOWEDSIGNERS="${HOME}/.config/passage/allowed_signers"
+MYSECKEY="" #"${HOME}/.ssh/id_ed25519"
+MYPUBKEY="" # default value modified on start
+MYALLOWEDSIGNERS="" #"${HOME}/.config/passage/allowed_signers"
 
 
 ### RUNTIME GLOBAL VARIABLES
 
 STATE_RUNDIR="/tmp" # modified on start
+SAVELOG="0"
 
 
 ### HELPER ROUTINES
@@ -70,8 +70,67 @@ passage__shred_recursive() {
 }
 
 passage__sighandler() {
+	if [ "$SAVELOG" -eq "1" ]; then
+		if [ -f "$LOGFILE" ]; then
+			cp "$LOGFILE" "$TMPROOT/"
+			echo "Log file saved at ${TMPROOT}/$(basename "$LOGFILE")" >&2
+		else
+			echo "No log file to save" >&2
+		fi
+	fi
 	(passage__shred_recursive "$TMPDIR") || echo "Failed to clean $TMPDIR" >&2
 	cd "$STATE_RUNDIR"
+}
+
+passage__require_pubkey() {
+	# arguments: none
+	# uses global MYPUBKEY
+
+	if [ "$MYPUBKEY" = "" ]; then
+		echo "Required public key file not set" >&2
+		return 1
+	fi
+
+	if [ ! -f "$MYPUBKEY" ]; then
+		echo "Required public key file not found, tried: $MYPUBKEY" >&2
+		return 1
+	fi
+
+	return 0
+}
+
+passage__require_seckey() {
+	# arguments: none
+	# uses global MYSECKEY
+
+	if [ "$MYSECKEY" = "" ]; then
+		echo "Required secret key file not set" >&2
+		return 1
+	fi
+
+	if [ ! -f "$MYSECKEY" ]; then
+		echo "Required secret key file not found, tried: $MYSECKEY" >&2
+		return 1
+	fi
+
+	return 0
+}
+
+passage__require_allowedsigners() {
+	# arguments: none
+	# uses global MYALLOWEDSIGNERS
+
+	if [ "$MYALLOWEDSIGNERS" = "" ]; then
+		echo "Required allowed signers file not set" >&2
+		return 1
+	fi
+
+	if [ ! -f "$MYALLOWEDSIGNERS" ]; then
+		echo "Required allowed signers file not found, tried: $MYALLOWEDSIGNERS" >&2
+		return 1
+	fi
+
+	return 0
 }
 
 
@@ -89,11 +148,20 @@ passage_encrypt_secret() {
 	rm -fr "${secretname}.${DIRSUFFIX}"
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
+	passage__require_seckey || return 1
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
 		"${secretname}.${DIRSUFFIX}/recips" \
-		> "$LOGFILE" 2> "$LOGFILE"
+		> "$LOGFILE" 2> "$LOGFILE" || {
+		echo "ERROR: Signing of recipients file failed" >&2
+		return 1
+	}
 	age -R "${recipients_filename}" > "${secretname}.${DIRSUFFIX}/secret" \
-		> "$LOGFILE" 2> "$LOGFILE"
+		2> "$LOGFILE" || {
+		echo "ERROR: Encryption of secret failed" >&2
+		return 1
+	}
+
+	return 0
 }
 
 passage_show_secret() {
@@ -102,20 +170,32 @@ passage_show_secret() {
 
 	local secretname="$1"
 
+	passage__require_seckey || return 1
 	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" \
-		> "$LOGFILE" 2> "$LOGFILE"
+		2> "$LOGFILE" || {
+		echo "ERROR: Decryption of secret failed" >&2
+		return 1
+	}
+
+	return 0
 }
 
 passage_show_recipients() {
 	# arguments
 	# - secretname
 
+	local signedprincipal
 	local isvalidsig="0"
 	local secretname="$1"
 
-	local signedprincipal=$(ssh-keygen -Y find-principals \
+	passage__require_allowedsigners || return 1
+
+	signedprincipal=$(ssh-keygen -Y find-principals \
 		-s "${secretname}.${DIRSUFFIX}/recips.sig" \
-		-f "${MYALLOWEDSIGNERS}" 2> "$LOGFILE")
+		-f "${MYALLOWEDSIGNERS}" 2> "$LOGFILE") || {
+		echo "ERROR: Couldn't find the signer's principal in allowed signers list" >&2
+		return 1
+	}
 
 	ssh-keygen -Y verify -f "${MYALLOWEDSIGNERS}" -I "${signedprincipal}" \
 		-n "${SIGNATURE_NAMESPACE}" -s "${secretname}.${DIRSUFFIX}/recips.sig" \
@@ -124,16 +204,13 @@ passage_show_recipients() {
 	# TODO: use option -r revocation_file for ssh-keygen -Y verify
 
 	if [ "$isvalidsig" -ne "1" ]; then
-		echo "WARNING: Could not verify signature for recipients list" >&2
+		echo "ERROR: Could not verify signature for recipients list" >&2
+		return 1
 	fi
 
 	cat "${secretname}.${DIRSUFFIX}/recips"
-	if [ "$isvalidsig" -ne "1" ]; then
-		echo '# WARNING! AUTHENTICITY/INTEGRITY UNVERIFIED!'
-		return 1
-	else
-		return 0
-	fi
+	
+	return 0
 }
 
 passage__open_secret() {
@@ -175,7 +252,7 @@ passage__close_secret() {
 	local tmpsecret="$1"
 
 	(passage__shred_recursive "$tmpsecret") || {
-		echo "Failed to clean $tmpsecret" >&2
+		echo "WARNING: Failed to clean $tmpsecret" >&2
 		exit 1
 	}
 
@@ -192,14 +269,14 @@ passage_update_secret() {
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") 
+	tmpsecret=$(passage__open_secret "$secretname") || return 1
 
 	cat > "${tmpsecret}/secret.plain"
 
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret"
+	passage__close_secret "$tmpsecret" || true
 }
 
 passage_modify_secret() {
@@ -208,14 +285,14 @@ passage_modify_secret() {
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") 
+	tmpsecret=$(passage__open_secret "$secretname") || return 1
 
 	"$EDITOR" "${tmpsecret}/secret.plain"
 
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret"
+	passage__close_secret "$tmpsecret" || true
 }
 
 passage_update_recipients() {
@@ -224,14 +301,14 @@ passage_update_recipients() {
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") 
+	tmpsecret=$(passage__open_secret "$secretname") || return 1
 
 	cat > "${tmpsecret}/recips"
 
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret"
+	passage__close_secret "$tmpsecret" || true
 }
 
 passage_modify_recipients() {
@@ -247,7 +324,7 @@ passage_modify_recipients() {
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret"
+	passage__close_secret "$tmpsecret" || true
 }
 
 
@@ -284,10 +361,19 @@ trap passage__sighandler EXIT
 
 # Command line options - parsing
 
-while getopts 'R:' arg; do
+while getopts 'R:k:p:s:' arg; do
 	case $arg in
+	k)
+		MYSECKEY="$OPTARG"
+		;;
+	p)
+		MYPUBKEY="$OPTARG"
+		;;
 	R) 
 		ROOTDIR="$OPTARG"
+		;;
+	s)
+		MYALLOWEDSIGNERS="$OPTARG"
 		;;
 	?)
 		echo "Unknown option: $arg" >&2
@@ -300,6 +386,16 @@ shift $((OPTIND-1))
 
 
 # Options - sanity check
+# - sanity of private / public key filenames is checked ad-hoc
+# - public key location is guessed here if unset
+# - sanity of allowed-signers file is checked ad-hoc
+
+if [ "$MYPUBKEY" = "" ] && [ -f "$MYSECKEY" ]; then
+	if [ -f "${MYSECKEY}.pub" ]; then
+		MYPUBKEY="${MYSECKEY}.pub"
+		echo "Using implicit public key $MYPUBKEY" >&2
+	fi
+fi
 
 if [ ! -d "$ROOTDIR" ]; then
 	echo "Root dir is not a directory" >&2
@@ -326,7 +422,7 @@ shift
 
 case "$cmd" in
 encrypt-secret)
-	passage_encrypt_secret $@
+	passage_encrypt_secret $@ 
 	;;
 show-secret)
 	passage_show_secret $@
@@ -340,8 +436,17 @@ list-secrets)
 modify-secret)
 	passage_modify_secret $@
 	;;
+update-secret)
+	passage_update_secret $@ || {
+		SAVELOG="1"
+		exit 1
+	}
+	;;
 modify-recipients)
 	passage_modify_recipients $@
+	;;
+update-recipients)
+	passage_update_recipients $@
 	;;
 *)
 	echo "Unknown command $cmd"
