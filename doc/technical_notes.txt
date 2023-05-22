@@ -18,9 +18,10 @@ Atomic operations:
  - Show recipients of a secret <- (secretname)
 
 Combinations:
- - Modify secret-content
- - Modify recipients
+ - Modify secret-content, update secret-content
+ - Modify recipients, update recipients
  - Add recipients from file (TODO)
+	- Replace recipients from file = update-recipients < file-with-ssh-pubkeys
  - Copy list of recipients from another secret (TODO)
 
 Other operations:
@@ -29,4 +30,4 @@ Other operations:
 
 # Issues
 
-update-recipients: malformed recipients content -> encryption fails -> future decrypts will fail
+FIXED update-recipients: malformed recipients content -> encryption fails -> future decrypts will fail
