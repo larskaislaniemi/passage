@@ -30,4 +30,5 @@ Other operations:
 
 # Issues
 
-FIXED update-recipients: malformed recipients content -> encryption fails -> future decrypts will fail
+- FIXED update-recipients: malformed recipients content -> encryption fails -> future decrypts will fail
+- public key location required even if private key is known -- fix by calculating pub from priv
