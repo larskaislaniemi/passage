@@ -21,6 +21,7 @@ MYALLOWEDSIGNERS="" #"${HOME}/.config/passage/allowed_signers"
 ### RUNTIME GLOBAL VARIABLES
 
 STATE_RUNDIR="/tmp" # modified on start
+STATE_UMASK="777" # modified on start
 SAVELOG="0"
 
 
@@ -80,6 +81,7 @@ passage__sighandler() {
 	fi
 	(passage__shred_recursive "$TMPDIR") || echo "Failed to clean $TMPDIR" >&2
 	cd "$STATE_RUNDIR"
+	umask "$STATE_UMASK"
 }
 
 passage__require_pubkey() {
@@ -342,12 +344,17 @@ passage_usage() {
 }
 
 
-### MAIN
+############
+### MAIN ###
+############
 
 TMPDIR="$(mktemp -d -p "$TMPROOT")"
 LOGFILE="${TMPDIR}/passage.log"
 STATE_RUNDIR=$(pwd)
+STATE_UMASK=$(umask)
 
+
+umask 066
 trap passage__sighandler EXIT
 
 
