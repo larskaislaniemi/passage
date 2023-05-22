@@ -148,7 +148,7 @@ passage_encrypt_secret() {
 	rm -fr "${secretname}.${DIRSUFFIX}"
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
-	passage__require_seckey || return 1
+	passage__require_seckey 
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
 		"${secretname}.${DIRSUFFIX}/recips" \
 		> "$LOGFILE" 2> "$LOGFILE" || {
@@ -170,7 +170,7 @@ passage_show_secret() {
 
 	local secretname="$1"
 
-	passage__require_seckey || return 1
+	passage__require_seckey 
 	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" \
 		2> "$LOGFILE" || {
 		echo "ERROR: Decryption of secret failed" >&2
@@ -188,7 +188,7 @@ passage_show_recipients() {
 	local isvalidsig="0"
 	local secretname="$1"
 
-	passage__require_allowedsigners || return 1
+	passage__require_allowedsigners 
 
 	signedprincipal=$(ssh-keygen -Y find-principals \
 		-s "${secretname}.${DIRSUFFIX}/recips.sig" \
@@ -227,16 +227,8 @@ passage__open_secret() {
 	# potentially exiting due to an error
 	echo "$tmpsecret"
 	
-	passage_show_recipients "$secretname" > "${tmpsecret}/recips" || {
-		echo "WARNING: Failed signature check, will not continue" >&2
-		(passage__close_secret "$tmpsecret") || true
-		exit 1
-	}
-	passage_show_secret "$secretname" > "${tmpsecret}/secret.plain" || {
-		echo "WARNING: Decrypt failed" >&2
-		(passage__close_secret "$tmpsecret") || true
-		exit 1
-	}
+	passage_show_recipients "$secretname" > "${tmpsecret}/recips" 
+	passage_show_secret "$secretname" > "${tmpsecret}/secret.plain" 
 
 	exit 0
 
@@ -269,14 +261,14 @@ passage_update_secret() {
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") || return 1
+	tmpsecret=$(passage__open_secret "$secretname") 
 
 	cat > "${tmpsecret}/secret.plain"
 
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" || true
+	passage__close_secret "$tmpsecret" 
 }
 
 passage_modify_secret() {
@@ -285,14 +277,14 @@ passage_modify_secret() {
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") || return 1
+	tmpsecret=$(passage__open_secret "$secretname") 
 
 	"$EDITOR" "${tmpsecret}/secret.plain"
 
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" || true
+	passage__close_secret "$tmpsecret" 
 }
 
 passage_update_recipients() {
@@ -301,14 +293,14 @@ passage_update_recipients() {
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") || return 1
+	tmpsecret=$(passage__open_secret "$secretname") 
 
 	cat > "${tmpsecret}/recips"
 
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" || true
+	passage__close_secret "$tmpsecret" 
 }
 
 passage_modify_recipients() {
@@ -324,7 +316,7 @@ passage_modify_recipients() {
 	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" || true
+	passage__close_secret "$tmpsecret" 
 }
 
 
@@ -375,10 +367,9 @@ while getopts 'R:k:p:s:' arg; do
 	s)
 		MYALLOWEDSIGNERS="$OPTARG"
 		;;
-	?)
-		echo "Unknown option: $arg" >&2
+	*)
 		passage_usage
-		
+		exit 1
 		;;
 	esac
 done
@@ -422,52 +413,28 @@ shift
 
 case "$cmd" in
 encrypt-secret)
-	passage_encrypt_secret $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_encrypt_secret $@ 
 	;;
 show-secret)
-	passage_show_secret $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_show_secret $@ 
 	;;
 show-recipients)
-	passage_show_recipients $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_show_recipients $@
 	;;
 list-secrets)
-	passage_list_secrets $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_list_secrets $@ 
 	;;
 modify-secret)
-	passage_modify_secret $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_modify_secret $@
 	;;
 update-secret)
-	passage_update_secret $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_update_secret $@
 	;;
 modify-recipients)
-	passage_modify_recipients $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_modify_recipients $@ 
 	;;
 update-recipients)
-	passage_update_recipients $@ || {
-		SAVELOG="1"
-		exit 1
-	}
+	passage_update_recipients $@ 
 	;;
 *)
 	echo "Unknown command $cmd"
