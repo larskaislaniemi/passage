@@ -5,17 +5,17 @@ set -eu -o noglob
 
 ### CONFIG VARIABLES
 
-DIRSUFFIX="pasg"
-SIGNATURE_NAMESPACE="passage"
+DIRSUFFIX="passg"
+SIGNATURE_NAMESPACE="passg"
 TMPROOT="/dev/shm"
 TMPDIR="/dev/shm" # modified on start
-LOGFILE="${TMPDIR}/passage.log" # modified on start
+LOGFILE="${TMPDIR}/passg.log" # modified on start
 EDITOR=${EDITOR:-vi} # YES!
 ROOTDIR="." # modified by command line arguments
 
 MYSECKEY="" #"${HOME}/.ssh/id_ed25519"
 MYPUBKEY="" # default value modified on start
-MYALLOWEDSIGNERS="" #"${HOME}/.config/passage/allowed_signers"
+MYALLOWEDSIGNERS="" #"${HOME}/.config/passg/allowed_signers"
 
 SAFE_UMASK="077"
 
@@ -28,7 +28,7 @@ SAVELOG="0"
 
 ### HELPER ROUTINES
 
-passage__shred_recursive() {
+passg__shred_recursive() {
 	# arguments:
 	# - dir/filename
 	# output: none
@@ -71,7 +71,7 @@ passage__shred_recursive() {
 	exit 1
 }
 
-passage__sighandler() {
+passg__sighandler() {
 	if [ "$SAVELOG" -eq "1" ]; then
 		if [ -f "$LOGFILE" ]; then
 			cp "$LOGFILE" "$TMPROOT/"
@@ -80,12 +80,12 @@ passage__sighandler() {
 			echo "No log file to save" >&2
 		fi
 	fi
-	(passage__shred_recursive "$TMPDIR") || echo "Failed to clean $TMPDIR" >&2
+	(passg__shred_recursive "$TMPDIR") || echo "Failed to clean $TMPDIR" >&2
 	cd "$STATE_RUNDIR"
 	umask "$STATE_UMASK"
 }
 
-passage__require_pubkey() {
+passg__require_pubkey() {
 	# arguments: none
 	# uses global MYPUBKEY
 
@@ -102,7 +102,7 @@ passage__require_pubkey() {
 	return 0
 }
 
-passage__require_seckey() {
+passg__require_seckey() {
 	# arguments: none
 	# uses global MYSECKEY
 
@@ -119,7 +119,7 @@ passage__require_seckey() {
 	return 0
 }
 
-passage__require_allowedsigners() {
+passg__require_allowedsigners() {
 	# arguments: none
 	# uses global MYALLOWEDSIGNERS
 
@@ -136,18 +136,18 @@ passage__require_allowedsigners() {
 	return 0
 }
 
-passage__normal_umask() {
+passg__normal_umask() {
 	umask "$STATE_UMASK"
 }
 
-passage__safe_umask() {
+passg__safe_umask() {
 	umask "$SAFE_UMASK"
 }
 
 
 ### ATOMIC OPERATIONS
 
-passage_encrypt_secret() {
+passg_encrypt_secret() {
 	# arguments:
 	# - secretname
 	# - recipients filename
@@ -158,14 +158,14 @@ passage_encrypt_secret() {
 	# TODO: check existence / lock file; might also be open for myself
 	rm -fr "${secretname}.${DIRSUFFIX}"
 
-	passage__normal_umask
+	passg__normal_umask
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
-	passage__safe_umask
+	passg__safe_umask
 
-	passage__require_seckey 
+	passg__require_seckey 
 
-	passage__normal_umask
+	passg__normal_umask
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
 		"${secretname}.${DIRSUFFIX}/recips" \
 		> "$LOGFILE" 2> "$LOGFILE" || {
@@ -177,18 +177,18 @@ passage_encrypt_secret() {
 		echo "ERROR: Encryption of secret failed" >&2
 		return 1
 	}
-	passage__safe_umask
+	passg__safe_umask
 
 	return 0
 }
 
-passage_show_secret() {
+passg_show_secret() {
 	# arguments:
 	# - secretname
 
 	local secretname="$1"
 
-	passage__require_seckey 
+	passg__require_seckey 
 
 	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" \
 		2> "$LOGFILE" || {
@@ -199,7 +199,7 @@ passage_show_secret() {
 	return 0
 }
 
-passage_show_recipients() {
+passg_show_recipients() {
 	# arguments
 	# - secretname
 
@@ -207,7 +207,7 @@ passage_show_recipients() {
 	local isvalidsig="0"
 	local secretname="$1"
 
-	passage__require_allowedsigners 
+	passg__require_allowedsigners 
 
 	signedprincipal=$(ssh-keygen -Y find-principals \
 		-s "${secretname}.${DIRSUFFIX}/recips.sig" \
@@ -232,7 +232,7 @@ passage_show_recipients() {
 	return 0
 }
 
-passage__open_secret() {
+passg__open_secret() {
 	# arguments
 	# - secretname
 	# output: tmpdir location
@@ -241,7 +241,7 @@ passage__open_secret() {
 	local secretname="$1"
 	local tmpsecret
 
-	passage__safe_umask # just to be sure
+	passg__safe_umask # just to be sure
 
 	tmpsecret="$(mktemp -d -p "$TMPDIR")"
 
@@ -249,15 +249,15 @@ passage__open_secret() {
 	# potentially exiting due to an error
 	echo "$tmpsecret"
 	
-	passage_show_recipients "$secretname" > "${tmpsecret}/recips" 
-	passage_show_secret "$secretname" > "${tmpsecret}/secret.plain" 
+	passg_show_recipients "$secretname" > "${tmpsecret}/recips" 
+	passg_show_secret "$secretname" > "${tmpsecret}/secret.plain" 
 
 	exit 0
 
 	# TODO: add lockfile
 }
 
-passage__close_secret() {
+passg__close_secret() {
 	# arguments:
 	# - tmpdir location
 	# output: none
@@ -265,7 +265,7 @@ passage__close_secret() {
 
 	local tmpsecret="$1"
 
-	(passage__shred_recursive "$tmpsecret") || {
+	(passg__shred_recursive "$tmpsecret") || {
 		echo "WARNING: Failed to clean $tmpsecret" >&2
 		exit 1
 	}
@@ -277,74 +277,74 @@ passage__close_secret() {
 
 ### COMBINED OPERATIONS
 
-passage_update_secret() {
+passg_update_secret() {
 	# arguments
 	# - secretname
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") 
+	tmpsecret=$(passg__open_secret "$secretname") 
 
 	cat > "${tmpsecret}/secret.plain"
 
-	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" 
+	passg__close_secret "$tmpsecret" 
 }
 
-passage_modify_secret() {
+passg_modify_secret() {
 	# arguments
 	# - secretname
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") 
+	tmpsecret=$(passg__open_secret "$secretname") 
 
 	"$EDITOR" "${tmpsecret}/secret.plain"
 
-	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" 
+	passg__close_secret "$tmpsecret" 
 }
 
-passage_update_recipients() {
+passg_update_recipients() {
 	# arguments
 	# - secretname
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname") 
+	tmpsecret=$(passg__open_secret "$secretname") 
 
 	cat > "${tmpsecret}/recips"
 
-	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" 
+	passg__close_secret "$tmpsecret" 
 }
 
-passage_modify_recipients() {
+passg_modify_recipients() {
 	# arguments
 	# - secretname
 
 	local secretname="$1"
 	local tmpsecret
-	tmpsecret=$(passage__open_secret "$secretname")
+	tmpsecret=$(passg__open_secret "$secretname")
 
 	"$EDITOR" "${tmpsecret}/recips"
 
-	passage_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
 		< "${tmpsecret}/secret.plain"
 
-	passage__close_secret "$tmpsecret" 
+	passg__close_secret "$tmpsecret" 
 }
 
 
 ### OTHER SUBROUTINES
 
-passage_list_secrets() {
+passg_list_secrets() {
 	# arguments: none
 
 	find "$ROOTDIR" -type d -name "*.${DIRSUFFIX}" | while read d; do
@@ -359,7 +359,7 @@ passage_list_secrets() {
 	done
 }
 
-passage_usage() {
+passg_usage() {
 	echo "Usage: not yet implemented"
 }
 
@@ -369,13 +369,13 @@ passage_usage() {
 ############
 
 TMPDIR="$(mktemp -d -p "$TMPROOT")"
-LOGFILE="${TMPDIR}/passage.log"
+LOGFILE="${TMPDIR}/passg.log"
 STATE_RUNDIR=$(pwd)
 STATE_UMASK=$(umask)
 
 
 umask "$SAFE_UMASK"
-trap passage__sighandler EXIT
+trap passg__sighandler EXIT
 
 
 # Command line options - parsing
@@ -395,7 +395,7 @@ while getopts 'R:k:p:s:' arg; do
 		MYALLOWEDSIGNERS="$OPTARG"
 		;;
 	*)
-		passage_usage
+		passg_usage
 		exit 1
 		;;
 	esac
@@ -431,7 +431,7 @@ cd "$ROOTDIR"
 # Parse commands
 
 if [ "$#" -lt 1 ]; then
-	passage_usage
+	passg_usage
 	exit 1
 fi
 
@@ -440,32 +440,32 @@ shift
 
 case "$cmd" in
 encrypt-secret)
-	passage_encrypt_secret $@ 
+	passg_encrypt_secret $@ 
 	;;
 show-secret)
-	passage_show_secret $@ 
+	passg_show_secret $@ 
 	;;
 show-recipients)
-	passage_show_recipients $@
+	passg_show_recipients $@
 	;;
 list-secrets)
-	passage_list_secrets $@ 
+	passg_list_secrets $@ 
 	;;
 modify-secret)
-	passage_modify_secret $@
+	passg_modify_secret $@
 	;;
 update-secret)
-	passage_update_secret $@
+	passg_update_secret $@
 	;;
 modify-recipients)
-	passage_modify_recipients $@ 
+	passg_modify_recipients $@ 
 	;;
 update-recipients)
-	passage_update_recipients $@ 
+	passg_update_recipients $@ 
 	;;
 *)
 	echo "Unknown command $cmd"
-	passage_usage $@
+	passg_usage $@
 	exit 1
 	;;
 esac
