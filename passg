@@ -154,29 +154,35 @@ passg_encrypt_secret() {
 
 	local secretname="$1"
 	local recipients_filename="$2"
-
+	local tmpcreate
+	
 	# TODO: check existence / lock file; might also be open for myself
-	rm -fr "${secretname}.${DIRSUFFIX}"
 
-	passg__normal_umask
-	mkdir -p "${secretname}.${DIRSUFFIX}"
-	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
+	passg__require_seckey
+
 	passg__safe_umask
+	tmpcreate=$(mktemp -d -p "$TMPDIR")
 
-	passg__require_seckey 
-
-	passg__normal_umask
+	cat "$recipients_filename" > "${tmpcreate}/recips"
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
-		"${secretname}.${DIRSUFFIX}/recips" \
+		"${tmpcreate}/recips" \
 		> "$LOGFILE" 2> "$LOGFILE" || {
 		echo "ERROR: Signing of recipients file failed" >&2
 		return 1
 	}
-	age -R "${recipients_filename}" > "${secretname}.${DIRSUFFIX}/secret" \
+	age -R "${recipients_filename}" > "${tmpcreate}/secret" \
 		2> "$LOGFILE" || {
 		echo "ERROR: Encryption of secret failed" >&2
 		return 1
 	}
+
+	passg__normal_umask
+	mkdir -p "${secretname}.${DIRSUFFIX}"
+	for f in recips recips.sig secret; do
+		rm -f "${secretname}.${DIRSUFFIX}/${f}"
+		cat "${tmpsecret}/${f}" > "${secretname}.${DIRSUFFIX}/"
+	done
+
 	passg__safe_umask
 
 	return 0
