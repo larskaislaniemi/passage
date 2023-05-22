@@ -153,6 +153,8 @@ passg__open_secret() {
 	local secretname="$1"
 	local tmpsecret
 
+	secretname="$(passg__stripsuffix "$secretname")"
+
 	passg__safe_umask # just to be sure
 
 	tmpsecret="$(mktemp -d -p "$TMPDIR")"
@@ -244,6 +246,22 @@ passg__genpwd() {
 	passg__calcentropy "$len" "$charset"
 }
 
+passg__stripsuffix() {
+	# in case user happened to use the suffix, strip it
+
+	if [ "$#" -lt 1 ]; then
+		echo ""
+		return 0
+	fi
+
+	local s
+	s="$1"
+	s="${s%"/"}"
+	s="${s%".${DIRSUFFIX}"}"
+	echo "$s"
+	return 0
+}
+
 ### ATOMIC OPERATIONS
 
 passg_encrypt_secret() {
@@ -258,6 +276,8 @@ passg_encrypt_secret() {
 	# TODO: check existence / lock file; might also be open for myself
 
 	passg__require_seckey
+
+	secretname="$(passg__stripsuffix "$secretname")"
 
 	passg__safe_umask
 	tmpcreate=$(mktemp -d -p "$TMPDIR")
@@ -295,6 +315,8 @@ passg_show_secret() {
 
 	passg__require_seckey 
 
+	secretname="$(passg__stripsuffix "$secretname")"
+
 	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" \
 		2>> "$LOGFILE" || {
 		echo "ERROR: Decryption of secret failed" >&2
@@ -313,6 +335,8 @@ passg_show_recipients() {
 	local secretname="$1"
 
 	passg__require_allowedsigners 
+
+	secretname="$(passg__stripsuffix "$secretname")"
 
 	signedprincipal=$(ssh-keygen -Y find-principals \
 		-s "${secretname}.${DIRSUFFIX}/recips.sig" \
@@ -346,6 +370,9 @@ passg_update_secret() {
 
 	local secretname="$1"
 	local tmpsecret
+
+	secretname="$(passg__stripsuffix "$secretname")"
+
 	tmpsecret=$(passg__open_secret "$secretname") 
 
 	cat > "${tmpsecret}/secret.plain"
@@ -362,6 +389,9 @@ passg_modify_secret() {
 
 	local secretname="$1"
 	local tmpsecret
+
+	secretname="$(passg__stripsuffix "$secretname")"
+
 	tmpsecret=$(passg__open_secret "$secretname") 
 
 	"$EDITOR" "${tmpsecret}/secret.plain"
@@ -378,6 +408,9 @@ passg_update_recipients() {
 
 	local secretname="$1"
 	local tmpsecret
+
+	secretname="$(passg__stripsuffix "$secretname")"
+
 	tmpsecret=$(passg__open_secret "$secretname") 
 
 	cat > "${tmpsecret}/recips"
@@ -394,6 +427,9 @@ passg_modify_recipients() {
 
 	local secretname="$1"
 	local tmpsecret
+
+	secretname="$(passg__stripsuffix "$secretname")"
+
 	tmpsecret=$(passg__open_secret "$secretname")
 
 	"$EDITOR" "${tmpsecret}/recips"
