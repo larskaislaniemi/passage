@@ -17,6 +17,7 @@ MYSECKEY="" #"${HOME}/.ssh/id_ed25519"
 MYPUBKEY="" # default value modified on start
 MYALLOWEDSIGNERS="" #"${HOME}/.config/passage/allowed_signers"
 
+SAFE_UMASK="077"
 
 ### RUNTIME GLOBAL VARIABLES
 
@@ -135,6 +136,14 @@ passage__require_allowedsigners() {
 	return 0
 }
 
+passage__normal_umask() {
+	umask "$STATE_UMASK"
+}
+
+passage__safe_umask() {
+	umask "$SAFE_UMASK"
+}
+
 
 ### ATOMIC OPERATIONS
 
@@ -148,9 +157,15 @@ passage_encrypt_secret() {
 
 	# TODO: check existence / lock file; might also be open for myself
 	rm -fr "${secretname}.${DIRSUFFIX}"
+
+	passage__normal_umask
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	cp "$recipients_filename" "${secretname}.${DIRSUFFIX}/recips"
+	passage__safe_umask
+
 	passage__require_seckey 
+
+	passage__normal_umask
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
 		"${secretname}.${DIRSUFFIX}/recips" \
 		> "$LOGFILE" 2> "$LOGFILE" || {
@@ -162,6 +177,7 @@ passage_encrypt_secret() {
 		echo "ERROR: Encryption of secret failed" >&2
 		return 1
 	}
+	passage__safe_umask
 
 	return 0
 }
@@ -173,6 +189,7 @@ passage_show_secret() {
 	local secretname="$1"
 
 	passage__require_seckey 
+
 	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" \
 		2> "$LOGFILE" || {
 		echo "ERROR: Decryption of secret failed" >&2
@@ -223,6 +240,9 @@ passage__open_secret() {
 
 	local secretname="$1"
 	local tmpsecret
+
+	passage__safe_umask # just to be sure
+
 	tmpsecret="$(mktemp -d -p "$TMPDIR")"
 
 	# Make sure we give the output before
@@ -354,7 +374,7 @@ STATE_RUNDIR=$(pwd)
 STATE_UMASK=$(umask)
 
 
-umask 066
+umask "$SAFE_UMASK"
 trap passage__sighandler EXIT
 
 
