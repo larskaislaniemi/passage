@@ -26,3 +26,7 @@ Combinations:
 Other operations:
  - List secrets
 
+
+# Issues
+
+update-recipients: malformed recipients content -> encryption fails -> future decrypts will fail
