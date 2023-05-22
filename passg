@@ -186,6 +186,31 @@ passg__close_secret() {
 	# TODO: remove lockfile
 }
 
+passg__calcentropy() {
+	# arguments:
+	# - length
+	# - charset
+
+	local len
+	local charset
+	local allchar
+	local c s n e
+
+	len="$1"
+	charset="$2"
+
+	allchar=""
+
+	for c in $(seq 0 255); do
+		s=$(printf \\$(printf '%03o' $c))
+		allchar="${allchar}$s"
+	done
+	allchar="$(echo "$allchar" | tr -d -c "$charset")"
+	n=$(expr length "$allchar")
+	e=$(echo "l(${n}^${len})/l(2)" | bc -l)
+	echo "Entropy: ${e} bits" >&2
+}
+
 passg__genpwd() {
 	# arguments:
 	# - length (optional)
@@ -216,6 +241,7 @@ passg__genpwd() {
 	pw="$(echo "$pw" | dd bs=1 count="$len" 2>/dev/null)"
 
 	echo "$pw"
+	passg__calcentropy "$len" "$charset"
 }
 
 ### ATOMIC OPERATIONS
