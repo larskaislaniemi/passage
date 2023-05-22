@@ -353,7 +353,7 @@ passg_modify_recipients() {
 passg_list_secrets() {
 	# arguments: none
 
-	find "$ROOTDIR" -type d -name "*.${DIRSUFFIX}" | while read d; do
+	find "$ROOTDIR/" -type d -name "*.${DIRSUFFIX}" | while read d; do
 		if [ -f "${d}/secret" ] && [ -f "${d}/recips" ]; then
 			local path
 			path=${d#"${ROOTDIR}/"}
