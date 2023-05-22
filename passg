@@ -144,6 +144,81 @@ passg__safe_umask() {
 	umask "$SAFE_UMASK"
 }
 
+passg__open_secret() {
+	# arguments
+	# - secretname
+	# output: tmpdir location
+	# returns via exit(), run in subshell!
+
+	local secretname="$1"
+	local tmpsecret
+
+	passg__safe_umask # just to be sure
+
+	tmpsecret="$(mktemp -d -p "$TMPDIR")"
+
+	# Make sure we give the output before
+	# potentially exiting due to an error
+	echo "$tmpsecret"
+	
+	passg_show_recipients "$secretname" > "${tmpsecret}/recips" 
+	passg_show_secret "$secretname" > "${tmpsecret}/secret.plain" 
+
+	exit 0
+
+	# TODO: add lockfile
+}
+
+passg__close_secret() {
+	# arguments:
+	# - tmpdir location
+	# output: none
+	# returns via exit(), run in subshell!
+
+	local tmpsecret="$1"
+
+	(passg__shred_recursive "$tmpsecret") || {
+		echo "WARNING: Failed to clean $tmpsecret" >&2
+		exit 1
+	}
+
+	exit 0
+	# TODO: remove lockfile
+}
+
+passg__genpwd() {
+	# arguments:
+	# - length (optional)
+	# - character set (optional), as set for `tr`
+
+	local pw
+	local len
+	local charset
+	len="16"
+	charset="a-zA-Z0-9"
+
+	if [ "$#" -gt 0 ]; then
+		len="$1"
+		echo "len=$len"
+		shift
+	fi
+
+	if [ "$#" -gt 0 ]; then
+		charset="$1"
+		echo "charset=$charset"
+		shift
+	fi
+
+	pw=""
+	while [ $(expr length "$pw") -lt "$len" ]; do
+		pwadd=$(dd if=/dev/urandom bs=1 count=$((len)) \
+			| tr -d -c "$charset" | dd bs=1 count="$len") 2> /dev/null
+		pw="${pw}${pwadd}" 
+	done
+	pw="$(echo "$pw" | dd bs=1 count="$len" 2>/dev/null)"
+
+	echo "$pw"
+}
 
 ### ATOMIC OPERATIONS
 
@@ -236,48 +311,6 @@ passg_show_recipients() {
 	cat "${secretname}.${DIRSUFFIX}/recips"
 	
 	return 0
-}
-
-passg__open_secret() {
-	# arguments
-	# - secretname
-	# output: tmpdir location
-	# returns via exit(), run in subshell!
-
-	local secretname="$1"
-	local tmpsecret
-
-	passg__safe_umask # just to be sure
-
-	tmpsecret="$(mktemp -d -p "$TMPDIR")"
-
-	# Make sure we give the output before
-	# potentially exiting due to an error
-	echo "$tmpsecret"
-	
-	passg_show_recipients "$secretname" > "${tmpsecret}/recips" 
-	passg_show_secret "$secretname" > "${tmpsecret}/secret.plain" 
-
-	exit 0
-
-	# TODO: add lockfile
-}
-
-passg__close_secret() {
-	# arguments:
-	# - tmpdir location
-	# output: none
-	# returns via exit(), run in subshell!
-
-	local tmpsecret="$1"
-
-	(passg__shred_recursive "$tmpsecret") || {
-		echo "WARNING: Failed to clean $tmpsecret" >&2
-		exit 1
-	}
-
-	exit 0
-	# TODO: remove lockfile
 }
 
 
@@ -468,6 +501,9 @@ modify-recipients)
 	;;
 update-recipients)
 	passg_update_recipients $@ 
+	;;
+genpwd)
+	passg__genpwd $@
 	;;
 *)
 	echo "Unknown command $cmd"
