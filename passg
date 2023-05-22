@@ -199,13 +199,11 @@ passg__genpwd() {
 
 	if [ "$#" -gt 0 ]; then
 		len="$1"
-		echo "len=$len"
 		shift
 	fi
 
 	if [ "$#" -gt 0 ]; then
 		charset="$1"
-		echo "charset=$charset"
 		shift
 	fi
 
