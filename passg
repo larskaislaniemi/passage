@@ -459,7 +459,76 @@ passg_list_secrets() {
 }
 
 passg_usage() {
-	echo "Usage: not yet implemented"
+	cat<<EOF
+PASSG
+
+	Multi-user password store using age(1) and SSH keys.
+
+Usage:
+	passg [options] <command> [<command-arguments>]
+
+Options:
+
+	-k <file>	location of private SSH key file 
+	-p <file>	location of public SSH key file
+	-R <dir>	do operations relative to root dir <dir>
+	-s <file>	location of allowed signers file
+
+	SSH key files should be in format accepted by age(1).
+
+	Allowed signers is a list of public keys that are accepted as signers
+	of the recipients list. The format of this file is described in
+	ssh-keygen(1) manual page, ALLOWED SIGNERS section.
+
+Commands:
+
+	encrypt-secret <secret-path> <recipients-file>
+
+		Encrypt the secret given via STDIN to recipients listed
+		in <recipients-file>. <recipients-file> is a file containing
+		the SSH keys, one per line, to whom the secret is encrypted.
+
+	show-secret <secret-path>
+
+		Show the secret in <secret-path>. Requires option: -k.
+
+	show-recipients <secret-path>
+
+		Show recipients, i.e. SSH keys, to whom the secret has been
+		encrypted. Requires option: -s.
+
+	list-secrets
+
+		List secrets found under the current working directory.
+
+	modify-secret <secret-path>
+
+		Open an editor to modify the secret. Use environment variable 
+		EDITOR 	to change the editor. Requires options: -k, -s.
+
+	update-secret <secret-path>
+
+		Read a new secret from STDIN and overwrite the old. Does not
+		change the recipients. Requires options: -k, -s.
+
+	modify-recipients
+
+		Open an editor to modify the list of recipients. Use 
+		environment variable EDITOR to change the editor. Requires 
+		options: -k, -s.
+
+	update-recipients
+
+		Read a new list of recipients from STDIN and overwrite the 
+		old. Does not affect the contents of the secret. Requires 
+		options: -k, -s.
+
+	genpwd [length] [charset]
+
+		Helper tool to create new passwords. Optional parameters are
+		length and charset to use (as defined in tr(1), SETs).
+
+EOF
 }
 
 
