@@ -180,7 +180,7 @@ passg_encrypt_secret() {
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	for f in recips recips.sig secret; do
 		rm -f "${secretname}.${DIRSUFFIX}/${f}"
-		cat "${tmpsecret}/${f}" > "${secretname}.${DIRSUFFIX}/"
+		cat "${tmpcreate}/${f}" > "${secretname}.${DIRSUFFIX}/${f}"
 	done
 
 	passg__safe_umask
