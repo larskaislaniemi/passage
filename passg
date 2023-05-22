@@ -166,12 +166,12 @@ passg_encrypt_secret() {
 	cat "$recipients_filename" > "${tmpcreate}/recips"
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
 		"${tmpcreate}/recips" \
-		> "$LOGFILE" 2> "$LOGFILE" || {
+		>> "$LOGFILE" 2>> "$LOGFILE" || {
 		echo "ERROR: Signing of recipients file failed" >&2
 		return 1
 	}
 	age -R "${recipients_filename}" > "${tmpcreate}/secret" \
-		2> "$LOGFILE" || {
+		2>> "$LOGFILE" || {
 		echo "ERROR: Encryption of secret failed" >&2
 		return 1
 	}
@@ -197,7 +197,7 @@ passg_show_secret() {
 	passg__require_seckey 
 
 	age --decrypt -i "${MYSECKEY}" "${secretname}.${DIRSUFFIX}/secret" \
-		2> "$LOGFILE" || {
+		2>> "$LOGFILE" || {
 		echo "ERROR: Decryption of secret failed" >&2
 		return 1
 	}
@@ -217,14 +217,14 @@ passg_show_recipients() {
 
 	signedprincipal=$(ssh-keygen -Y find-principals \
 		-s "${secretname}.${DIRSUFFIX}/recips.sig" \
-		-f "${MYALLOWEDSIGNERS}" 2> "$LOGFILE") || {
+		-f "${MYALLOWEDSIGNERS}" 2>> "$LOGFILE") || {
 		echo "ERROR: Couldn't find the signer's principal in allowed signers list" >&2
 		return 1
 	}
 
 	ssh-keygen -Y verify -f "${MYALLOWEDSIGNERS}" -I "${signedprincipal}" \
 		-n "${SIGNATURE_NAMESPACE}" -s "${secretname}.${DIRSUFFIX}/recips.sig" \
-		> "$LOGFILE" 2> "$LOGFILE" < "${secretname}.${DIRSUFFIX}/recips" \
+		>> "$LOGFILE" 2>> "$LOGFILE" < "${secretname}.${DIRSUFFIX}/recips" \
 		&& isvalidsig="1"
 	# TODO: use option -r revocation_file for ssh-keygen -Y verify
 
