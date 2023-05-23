@@ -206,11 +206,16 @@ passg__stripsuffix() {
 passg_encrypt_secret() {
 	# arguments:
 	# - secretname
-	# - recipients filename
+	# - recipients filename(s)
 
-	local secretname="$1"
-	local recipients_filename="$2"
 	local tmpsecret
+	local secretname="$1"
+	shift
+
+	if [ "$#" -lt "1" ]; then
+		echo "ERROR: Recipients not defined." >&2
+		return 1
+	fi
 
 	# TODO: check existence / lock file; might also be open for myself
 
@@ -221,7 +226,10 @@ passg_encrypt_secret() {
 	passg__safe_umask
 	tmpsecret=$(mktemp -d -p "$TMPDIR")
 
-	cp "$recipients_filename" "${tmpsecret}/recips"
+	while [ "$#" -gt 0 ]; do
+		cat "$1" >> "${tmpsecret}/recips"
+		shift
+	done
 
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
 		"${tmpsecret}/recips" \
@@ -346,13 +354,23 @@ passg_modify_secret() {
 passg_update_recipients() {
 	# arguments
 	# - secretname
+	# - recipients filename(s) (optional)
 
 	local secretname="$1"
+	shift
 
 	passg__require_seckey
 
 	passg__safe_umask
-	cat > "${TMPDIR}/recips"
+
+	if [ "$#" -gt 0 ]; then
+		while [ "$#" -gt 0 ]; do
+			cat "$1" >> "${TMPDIR}/recips"
+			shift
+		done
+	else
+		cat > "${TMPDIR}/recips"
+	fi
 
 	secretname="$(passg__stripsuffix "$secretname")"
 
@@ -423,11 +441,12 @@ Options:
 
 Commands:
 
-	encrypt-secret <secret-path> <recipients-file>
+	encrypt-secret <secret-path> <recipients-file> [<recipients-file> ...]
 
 		Encrypt the secret given via STDIN to recipients listed
 		in <recipients-file>. <recipients-file> is a file containing
 		the SSH keys, one per line, to whom the secret is encrypted.
+		Requires option: -k.
 
 	show-secret <secret-path>
 
@@ -458,11 +477,12 @@ Commands:
 		environment variable EDITOR to change the editor. Requires 
 		options: -k, -s.
 
-	update-recipients
+	update-recipients [<recipients-file> ...]
 
-		Read a new list of recipients from STDIN and overwrite the 
-		old. Does not affect the contents of the secret. Requires 
-		options: -k, -s.
+		Read a new list of recipients from <recipients-file(s)> or
+		from STDIN if files not given, and overwrite the old
+		recipients. Does not affect the contents of the secret. 
+		Requires options: -k, -s.
 
 	genpwd [length] [charset]
 
