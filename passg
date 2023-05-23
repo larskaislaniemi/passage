@@ -33,7 +33,6 @@ passg__shred_recursive() {
 	# returns via exit(), run in a subshell!
 
 	local f="$1"
-	local dummy
 	local frec
 
 	if [ -f "$f" ]; then
@@ -43,8 +42,9 @@ passg__shred_recursive() {
 	fi
 
 	if [ -d "$f" ]; then
-		local d=$(realpath "$f")
-		local n=$(find "$f" -type f | wc -l)
+		local d n
+		d=$(realpath "$f")
+		n=$(find "$f" -type f | wc -l)
 
 		if [ "$n" -gt 10 ]; then
 			echo "WARNING: Skipping shredding of $f -- too many files" >&2
@@ -56,7 +56,7 @@ passg__shred_recursive() {
 			exit 1
 		fi
 
-		find "$d" -type f | while read frec; do
+		find "$d" -type f | while read -r frec; do
 			shred "$frec"
 			rm -f "$frec"
 		done
@@ -143,7 +143,7 @@ passg__calcentropy() {
 	allchar=""
 
 	for c in $(seq 0 255); do
-		s=$(printf \\$(printf '%03o' $c))
+		s=$(printf "\\$(printf '%03o' $c)")
 		allchar="${allchar}$s"
 	done
 	allchar="$(echo "$allchar" | tr -d -c "$charset")"
@@ -174,7 +174,7 @@ passg__genpwd() {
 	fi
 
 	pw=""
-	while [ $(expr length "$pw") -lt "$len" ]; do
+	while [ "$(expr length "$pw")" -lt "$len" ]; do
 		pwadd=$(dd if=/dev/urandom bs=1 count=$((len)) \
 			| tr -d -c "$charset" | dd bs=1 count="$len") 2> /dev/null
 		pw="${pw}${pwadd}" 
@@ -388,7 +388,7 @@ passg_modify_recipients() {
 passg_list_secrets() {
 	# arguments: none
 
-	find "$ROOTDIR/" -type d -name "*.${DIRSUFFIX}" | while read d; do
+	find "$ROOTDIR/" -type d -name "*.${DIRSUFFIX}" | while read -r d; do
 		if [ -f "${d}/secret" ] && [ -f "${d}/recips" ]; then
 			local path
 			path=${d#"${ROOTDIR}/"}
@@ -518,7 +518,7 @@ if [ ! -d "$ROOTDIR" ]; then
 	echo "Root dir is not a directory" >&2
 	exit 1
 fi
-ROOTDIR=$(realpath $ROOTDIR)
+ROOTDIR=$(realpath "$ROOTDIR")
 ROOTDIR="${ROOTDIR%"/"}"
 
 
@@ -539,35 +539,35 @@ shift
 
 case "$cmd" in
 encrypt-secret)
-	passg_encrypt_secret $@ 
+	passg_encrypt_secret "$@"
 	;;
 show-secret)
-	passg_show_secret $@ 
+	passg_show_secret "$@"
 	;;
 show-recipients)
-	passg_show_recipients $@
+	passg_show_recipients "$@"
 	;;
 list-secrets)
-	passg_list_secrets $@ 
+	passg_list_secrets "$@"
 	;;
 modify-secret)
-	passg_modify_secret $@
+	passg_modify_secret "$@"
 	;;
 update-secret)
-	passg_update_secret $@
+	passg_update_secret "$@"
 	;;
 modify-recipients)
-	passg_modify_recipients $@ 
+	passg_modify_recipients "$@"
 	;;
 update-recipients)
-	passg_update_recipients $@ 
+	passg_update_recipients "$@"
 	;;
 genpwd)
-	passg__genpwd $@
+	passg__genpwd "$@"
 	;;
 *)
 	echo "Unknown command $cmd"
-	passg_usage $@
+	passg_usage "$@"
 	exit 1
 	;;
 esac
