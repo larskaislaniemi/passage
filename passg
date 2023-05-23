@@ -7,14 +7,12 @@ set -eu -o noglob
 
 DIRSUFFIX="passg"
 SIGNATURE_NAMESPACE="passg"
-TMPROOT="/dev/shm"
-TMPDIR="/dev/shm" # modified on start
+TMPDIR="/tmp" # modified on start
 LOGFILE="${TMPDIR}/passg.log" # modified on start
 EDITOR=${EDITOR:-vi} # YES!
 ROOTDIR="." # modified by command line arguments
 
 MYSECKEY="" #"${HOME}/.ssh/id_ed25519"
-MYPUBKEY="" # default value modified on start
 MYALLOWEDSIGNERS="" #"${HOME}/.config/passg/allowed_signers"
 
 SAFE_UMASK="077"
@@ -74,8 +72,10 @@ passg__shred_recursive() {
 passg__sighandler() {
 	if [ "$SAVELOG" -eq "1" ]; then
 		if [ -f "$LOGFILE" ]; then
-			cp "$LOGFILE" "$TMPROOT/"
-			echo "Log file saved at ${TMPROOT}/$(basename "$LOGFILE")" >&2
+			local f
+			f=$(mkdtemp)
+			cat "$LOGFILE" > "$f"
+			echo "Log file saved at ${f}" >&2
 		else
 			echo "No log file to save" >&2
 		fi
@@ -83,23 +83,6 @@ passg__sighandler() {
 	(passg__shred_recursive "$TMPDIR") || echo "Failed to clean $TMPDIR" >&2
 	cd "$STATE_RUNDIR"
 	umask "$STATE_UMASK"
-}
-
-passg__require_pubkey() {
-	# arguments: none
-	# uses global MYPUBKEY
-
-	if [ "$MYPUBKEY" = "" ]; then
-		echo "Required public key file not set" >&2
-		return 1
-	fi
-
-	if [ ! -f "$MYPUBKEY" ]; then
-		echo "Required public key file not found, tried: $MYPUBKEY" >&2
-		return 1
-	fi
-
-	return 0
 }
 
 passg__require_seckey() {
@@ -142,50 +125,6 @@ passg__normal_umask() {
 
 passg__safe_umask() {
 	umask "$SAFE_UMASK"
-}
-
-passg__open_secret() {
-	# arguments
-	# - secretname
-	# output: tmpdir location
-	# returns via exit(), run in subshell!
-
-	local secretname="$1"
-	local tmpsecret
-
-	secretname="$(passg__stripsuffix "$secretname")"
-
-	passg__safe_umask # just to be sure
-
-	tmpsecret="$(mktemp -d -p "$TMPDIR")"
-
-	# Make sure we give the output before
-	# potentially exiting due to an error
-	echo "$tmpsecret"
-	
-	passg_show_recipients "$secretname" > "${tmpsecret}/recips" 
-	passg_show_secret "$secretname" > "${tmpsecret}/secret.plain" 
-
-	exit 0
-
-	# TODO: add lockfile
-}
-
-passg__close_secret() {
-	# arguments:
-	# - tmpdir location
-	# output: none
-	# returns via exit(), run in subshell!
-
-	local tmpsecret="$1"
-
-	(passg__shred_recursive "$tmpsecret") || {
-		echo "WARNING: Failed to clean $tmpsecret" >&2
-		exit 1
-	}
-
-	exit 0
-	# TODO: remove lockfile
 }
 
 passg__calcentropy() {
@@ -271,8 +210,8 @@ passg_encrypt_secret() {
 
 	local secretname="$1"
 	local recipients_filename="$2"
-	local tmpcreate
-	
+	local tmpsecret
+
 	# TODO: check existence / lock file; might also be open for myself
 
 	passg__require_seckey
@@ -280,29 +219,31 @@ passg_encrypt_secret() {
 	secretname="$(passg__stripsuffix "$secretname")"
 
 	passg__safe_umask
-	tmpcreate=$(mktemp -d -p "$TMPDIR")
+	tmpsecret=$(mktemp -d -p "$TMPDIR")
 
-	cat "$recipients_filename" > "${tmpcreate}/recips"
+	cp "$recipients_filename" "${tmpsecret}/recips"
+
 	ssh-keygen -Y sign -f "${MYSECKEY}" -n "${SIGNATURE_NAMESPACE}" \
-		"${tmpcreate}/recips" \
+		"${tmpsecret}/recips" \
 		>> "$LOGFILE" 2>> "$LOGFILE" || {
 		echo "ERROR: Signing of recipients file failed" >&2
 		return 1
 	}
-	age -R "${recipients_filename}" > "${tmpcreate}/secret" \
+	age -R "${tmpsecret}/recips" > "${tmpsecret}/secret" \
 		2>> "$LOGFILE" || {
 		echo "ERROR: Encryption of secret failed" >&2
 		return 1
 	}
-
 	passg__normal_umask
 	mkdir -p "${secretname}.${DIRSUFFIX}"
 	for f in recips recips.sig secret; do
 		rm -f "${secretname}.${DIRSUFFIX}/${f}"
-		cat "${tmpcreate}/${f}" > "${secretname}.${DIRSUFFIX}/${f}"
+		cat "${tmpsecret}/${f}" > "${secretname}.${DIRSUFFIX}/${f}"
 	done
 
 	passg__safe_umask
+
+	(passg__shred_recursive "$tmpsecret")
 
 	return 0
 }
@@ -345,6 +286,8 @@ passg_show_recipients() {
 		return 1
 	}
 
+	echo "# Signer is: $signedprincipal" >&2
+
 	ssh-keygen -Y verify -f "${MYALLOWEDSIGNERS}" -I "${signedprincipal}" \
 		-n "${SIGNATURE_NAMESPACE}" -s "${secretname}.${DIRSUFFIX}/recips.sig" \
 		>> "$LOGFILE" 2>> "$LOGFILE" < "${secretname}.${DIRSUFFIX}/recips" \
@@ -373,14 +316,8 @@ passg_update_secret() {
 
 	secretname="$(passg__stripsuffix "$secretname")"
 
-	tmpsecret=$(passg__open_secret "$secretname") 
-
-	cat > "${tmpsecret}/secret.plain"
-
-	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
-		< "${tmpsecret}/secret.plain"
-
-	passg__close_secret "$tmpsecret" 
+	# this reads from stdin, i.e. user input
+	passg_encrypt_secret "$secretname" "${secretname}.${DIRSUFFIX}/recips" 
 }
 
 passg_modify_secret() {
@@ -390,16 +327,20 @@ passg_modify_secret() {
 	local secretname="$1"
 	local tmpsecret
 
-	secretname="$(passg__stripsuffix "$secretname")"
+	echo "ERROR: Not implemented." >&2
 
-	tmpsecret=$(passg__open_secret "$secretname") 
+	false
 
-	"$EDITOR" "${tmpsecret}/secret.plain"
+	#secretname="$(passg__stripsuffix "$secretname")"
 
-	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
-		< "${tmpsecret}/secret.plain"
+	#tmpsecret=$(passg__open_secret "$secretname") 
 
-	passg__close_secret "$tmpsecret" 
+	#"$EDITOR" "${tmpsecret}/secret.plain"
+
+	#passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+	#	< "${tmpsecret}/secret.plain"
+
+	#passg__close_secret "$tmpsecret" 
 }
 
 passg_update_recipients() {
@@ -407,18 +348,15 @@ passg_update_recipients() {
 	# - secretname
 
 	local secretname="$1"
-	local tmpsecret
+
+	passg__require_seckey
+
+	passg__safe_umask
+	cat > "${TMPDIR}/recips"
 
 	secretname="$(passg__stripsuffix "$secretname")"
 
-	tmpsecret=$(passg__open_secret "$secretname") 
-
-	cat > "${tmpsecret}/recips"
-
-	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
-		< "${tmpsecret}/secret.plain"
-
-	passg__close_secret "$tmpsecret" 
+	passg_show_secret "$secretname" | passg_encrypt_secret "$secretname" "${TMPDIR}/recips" 
 }
 
 passg_modify_recipients() {
@@ -428,16 +366,20 @@ passg_modify_recipients() {
 	local secretname="$1"
 	local tmpsecret
 
-	secretname="$(passg__stripsuffix "$secretname")"
+	echo "ERROR: Not implemented." >&2
 
-	tmpsecret=$(passg__open_secret "$secretname")
+	false
 
-	"$EDITOR" "${tmpsecret}/recips"
+	#secretname="$(passg__stripsuffix "$secretname")"
 
-	passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
-		< "${tmpsecret}/secret.plain"
+	#tmpsecret=$(passg__open_secret "$secretname")
 
-	passg__close_secret "$tmpsecret" 
+	#"$EDITOR" "${tmpsecret}/recips"
+
+	#passg_encrypt_secret "$secretname" "${tmpsecret}/recips" \
+	#	< "${tmpsecret}/secret.plain"
+
+	#passg__close_secret "$tmpsecret" 
 }
 
 
@@ -536,7 +478,7 @@ EOF
 ### MAIN ###
 ############
 
-TMPDIR="$(mktemp -d -p "$TMPROOT")"
+TMPDIR="$(mktemp -d)"
 LOGFILE="${TMPDIR}/passg.log"
 STATE_RUNDIR=$(pwd)
 STATE_UMASK=$(umask)
@@ -552,9 +494,6 @@ while getopts 'R:k:p:s:' arg; do
 	case $arg in
 	k)
 		MYSECKEY="$OPTARG"
-		;;
-	p)
-		MYPUBKEY="$OPTARG"
 		;;
 	R) 
 		ROOTDIR="$OPTARG"
@@ -572,16 +511,9 @@ shift $((OPTIND-1))
 
 
 # Options - sanity check
-# - sanity of private / public key filenames is checked ad-hoc
-# - public key location is guessed here if unset
+# - sanity of private key filenames is checked ad-hoc
 # - sanity of allowed-signers file is checked ad-hoc
 
-if [ "$MYPUBKEY" = "" ] && [ -f "$MYSECKEY" ]; then
-	if [ -f "${MYSECKEY}.pub" ]; then
-		MYPUBKEY="${MYSECKEY}.pub"
-		echo "Using implicit public key $MYPUBKEY" >&2
-	fi
-fi
 
 if [ ! -d "$ROOTDIR" ]; then
 	echo "Root dir is not a directory" >&2

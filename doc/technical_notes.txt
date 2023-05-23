@@ -32,3 +32,4 @@ Other operations:
 
 - FIXED update-recipients: malformed recipients content -> encryption fails -> future decrypts will fail
 - public key location required even if private key is known -- fix by calculating pub from priv
+- FIXED remove dependency on /dev/shm, don't write plain secrets to files; use default tmpdir
