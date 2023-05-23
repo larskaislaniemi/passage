@@ -412,7 +412,6 @@ Usage:
 Options:
 
 	-k <file>	location of private SSH key file 
-	-p <file>	location of public SSH key file
 	-R <dir>	do operations relative to root dir <dir>
 	-s <file>	location of allowed signers file
 
